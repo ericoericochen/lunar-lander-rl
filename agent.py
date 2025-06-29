@@ -31,6 +31,12 @@ def save_config(save_dir: str, config: dict):
         json.dump(config, f, indent=4)
 
 
+def record_episode(
+    env: gym.Env,
+):
+    pass
+
+
 def plot_training_rewards(
     rewards: list, log_every: int, num_epochs: int, save_dir: str, env: gym.Env
 ):
