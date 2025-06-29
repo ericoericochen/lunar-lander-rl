@@ -85,6 +85,9 @@ class Actor(nn.Module):
         dist = torch.distributions.Normal(loc=mean, scale=std)
         action = dist.rsample()
         log_prob = dist.log_prob(action)
+
+        print("log_prob", log_prob)
+        raise RuntimeError
         return action, log_prob
 
 
