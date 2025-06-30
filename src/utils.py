@@ -3,13 +3,14 @@ import os
 import torch
 import gymnasium as gym
 from gymnasium.wrappers import RecordVideo
+import matplotlib.pyplot as plt
 
-from .policy import Policy
+from .policy import Policy, action_pt_to_env
 
 
 def save_json(data: dict, path: str):
     with open(path, "w") as f:
-        json.dump(data, f)
+        json.dump(data, f, indent=4)
 
 
 def evaluate_policy(env: gym.Env, policy: Policy, batch_size: int = 3):
@@ -22,9 +23,11 @@ def evaluate_policy(env: gym.Env, policy: Policy, batch_size: int = 3):
         with torch.no_grad():
             done = truncated = False
             while not (done or truncated):
-                obs_tensor = torch.as_tensor(obs, dtype=torch.float32)
+                obs_tensor = torch.as_tensor(obs, dtype=torch.float32).unsqueeze(0)
                 action, _ = policy(obs_tensor)
-                obs, reward, done, truncated, _ = env.step(action.item())
+                obs, reward, done, truncated, _ = env.step(
+                    action_pt_to_env(action, env)
+                )
                 episode_reward += float(reward)
 
         total_reward += episode_reward
@@ -67,11 +70,12 @@ def record_episode(
         step_count = 0
 
         while step_count < max_steps:
-            obs_tensor = torch.as_tensor(obs, dtype=torch.float32)
+            obs_tensor = torch.as_tensor(obs, dtype=torch.float32).unsqueeze(0)
             action, _ = policy(obs_tensor)
-            action = action.item()
 
-            obs, reward, done, truncated, _ = eval_env.step(action)
+            obs, reward, done, truncated, _ = eval_env.step(
+                action_pt_to_env(action, eval_env)
+            )
             rewards.append(float(reward))
             step_count += 1
 
@@ -84,3 +88,28 @@ def record_episode(
 
     eval_env.close()
     return total_reward, rewards
+
+
+def plot_training_rewards(
+    rewards: list, log_every: int, num_epochs: int, save_dir: str, env: gym.Env
+):
+    plt.figure(figsize=(10, 6))
+    epochs = range(log_every, num_epochs + 1, log_every)
+
+    plt.plot(epochs, rewards, "b-", label="Rewards")
+
+    if env.spec.reward_threshold is not None:
+        plt.axhline(
+            y=env.spec.reward_threshold,
+            color="g",
+            linestyle="--",
+            label=f"Solved ({env.spec.reward_threshold})",
+        )
+
+    plt.xlabel("Epoch")
+    plt.ylabel("Episode Reward")
+    plt.title(f"Training Progress - {env.spec.id}")
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(os.path.join(save_dir, "training_rewards.png"))
+    plt.close()

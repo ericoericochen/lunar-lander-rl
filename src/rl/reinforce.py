@@ -9,8 +9,8 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 from typing import Callable
 
-from ..utils import save_json, record_episode, evaluate_policy
-from ..policy import Policy
+from ..utils import save_json, record_episode, evaluate_policy, plot_training_rewards
+from ..policy import Policy, action_pt_to_env
 
 
 def get_episode_batch(env: gym.Env, policy: Policy, batch_size: int, gamma: float):
@@ -18,9 +18,9 @@ def get_episode_batch(env: gym.Env, policy: Policy, batch_size: int, gamma: floa
 
     obs, _ = env.reset()
     for i in range(batch_size):
-        obs = torch.as_tensor(obs, dtype=torch.float32)
+        obs = torch.as_tensor(obs, dtype=torch.float32).unsqueeze(0)
         action, log_prob = policy(obs)
-        obs, reward, done, _, __ = env.step(action.item())
+        obs, reward, done, _, __ = env.step(action_pt_to_env(action, env))
 
         actions.append(action)
         log_probs.append(log_prob)
@@ -131,27 +131,4 @@ def train_reinforce(
             prefix=f"final-{i}",
         )
 
-
-def plot_training_rewards(
-    rewards: list, log_every: int, num_epochs: int, save_dir: str, env: gym.Env
-):
-    plt.figure(figsize=(10, 6))
-    epochs = range(log_every, num_epochs + 1, log_every)
-
-    plt.plot(epochs, rewards, "b-", label="Rewards")
-
-    if env.spec.reward_threshold is not None:
-        plt.axhline(
-            y=env.spec.reward_threshold,
-            color="g",
-            linestyle="--",
-            label=f"Solved ({env.spec.reward_threshold})",
-        )
-
-    plt.xlabel("Epoch")
-    plt.ylabel("Episode Reward")
-    plt.title(f"Training Progress - {env.spec.id}")
-    plt.legend()
-    plt.grid(True)
-    plt.savefig(os.path.join(save_dir, "training_rewards.png"))
-    plt.close()
+    torch.save(policy.state_dict(), os.path.join(save_dir, "policy.pth"))
