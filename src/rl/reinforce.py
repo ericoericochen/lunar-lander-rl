@@ -14,14 +14,18 @@ from ..policy import Policy, action_pt_to_env
 
 
 def get_episode_batch(env: gym.Env, policy: Policy, batch_size: int, gamma: float):
+    states = []
+    next_states = []
     actions, rewards, log_probs, dones, returns = [], [], [], [], []
 
     obs, _ = env.reset()
     for i in range(batch_size):
         obs = torch.as_tensor(obs, dtype=torch.float32).unsqueeze(0)
+        states.append(obs)
         action, log_prob = policy(obs)
         obs, reward, done, _, __ = env.step(action_pt_to_env(action, env))
 
+        next_states.append(torch.as_tensor(obs, dtype=torch.float32).unsqueeze(0))
         actions.append(action)
         log_probs.append(log_prob)
         rewards.append(float(reward))
@@ -38,6 +42,8 @@ def get_episode_batch(env: gym.Env, policy: Policy, batch_size: int, gamma: floa
         returns.insert(0, R)
 
     return {
+        "states": torch.cat(states, dim=0),
+        "next_states": torch.cat(next_states, dim=0),
         "actions": torch.stack(actions),
         "rewards": torch.tensor(rewards),
         "dones": torch.tensor(dones, dtype=torch.bool),
@@ -54,7 +60,6 @@ def train_reinforce(
     batch_size: int,
     n_epochs: int,
     save_dir: str,
-    with_baseline: bool = False,
     eval_every: int = 100,
     log_every: int = 50,
     seed: int = None,
@@ -64,7 +69,7 @@ def train_reinforce(
     print(f"[INFO] REINFORCE: env={env.spec.id} policy={policy.config}")
     print(f"[INFO] Saving to {save_dir}")
     print(
-        f"[INFO] Training with gamma={gamma}, lr={lr}, batch_size={batch_size}, n_epochs={n_epochs}, with_baseline={with_baseline}"
+        f"[INFO] Training with gamma={gamma}, lr={lr}, batch_size={batch_size}, n_epochs={n_epochs}"
     )
     save_json(
         {
@@ -72,7 +77,6 @@ def train_reinforce(
             "lr": lr,
             "batch_size": batch_size,
             "n_epochs": n_epochs,
-            "with_baseline": with_baseline,
             "env_id": env.spec.id,
             "policy": policy.config,
         },
@@ -95,16 +99,19 @@ def train_reinforce(
         )
 
         returns, log_probs = episode_batch["returns"], episode_batch["log_probs"]
+        # _, log_probs = policy(episode_batch["states"])
 
         # policy gradient with baseline = (Q(s, a) - b(s)) * ∇log π(a | s)
         # we calculate -(Q(s, a) - b(s)) * log π(a | s), then do gradient descent which moves policy parameters
         # in direction increase expected returns. θ = θ + α * (Q(s, a) - b(s)) * ∇log π(a | s)
-        if with_baseline:
-            returns = (returns - returns.mean()) / (
-                returns.std() + 1e-8
-            )  # this is equivalent to multiplying by a scalar - doesn't change direction of gradient and also reduces varaiance
+
+        returns = (returns - returns.mean()) / (
+            returns.std() + 1e-8
+        )  # this is equivalent to multiplying by a scalar - doesn't change direction of gradient and also reduces varaiance
 
         policy_loss = -(returns * log_probs).mean()
+        # print("policy_loss: ", policy_loss)
+        # raise RuntimeError
         optimizer.zero_grad()
         policy_loss.backward()
         optimizer.step()

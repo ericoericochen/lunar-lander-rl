@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import gymnasium as gym
 from typing import Union
-from gymnasium.spaces import Discrete, Box
+from gymnasium.spaces import Discrete, Box, MultiDiscrete
 
 
 def get_obs_and_act_dims(env: gym.Env):
@@ -16,11 +16,19 @@ def get_obs_and_act_dims(env: gym.Env):
 
 def action_pt_to_env(
     action: torch.Tensor,
-    env: gym.Env,
+    env: gym.vector.AsyncVectorEnv,
 ):
-    assert action.shape[0] == 1, "Action passed into env must be a single action"
+    # assert action.shape[0] == env.num_envs
+    # print("action_pt_to_env")
+    # print("action: ", action.shape)
+    # print(len(action.shape))
+    # assert action.shape[0] == 1, "Action passed into env must be a single action"
+    # if isinstance(env.action_space, Discrete):
+    # print(env.action_space)
     if isinstance(env.action_space, Discrete):
-        return action[0].item()
+        return action.detach().numpy()
+    elif isinstance(env.action_space, MultiDiscrete):
+        return action.detach().numpy()
     elif isinstance(env.action_space, Box):
         return action[0].detach().numpy()
 
@@ -48,6 +56,12 @@ class DiscretePolicy(nn.Module):
                 "n_acts": self.n_acts,
             },
         }
+
+    def get_log_probs(self, obs: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
+        logits = self.mlp(obs)
+        dist = torch.distributions.Categorical(logits=logits)
+        log_prob = dist.log_prob(actions)
+        return log_prob
 
     def forward(self, obs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         logits = self.mlp(obs)

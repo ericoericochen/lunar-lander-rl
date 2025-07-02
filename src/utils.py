@@ -23,7 +23,7 @@ def evaluate_policy(env: gym.Env, policy: Policy, batch_size: int = 3):
         with torch.no_grad():
             done = truncated = False
             while not (done or truncated):
-                obs_tensor = torch.as_tensor(obs, dtype=torch.float32).unsqueeze(0)
+                obs_tensor = torch.as_tensor(obs)
                 action, _ = policy(obs_tensor)
                 obs, reward, done, truncated, _ = env.step(
                     action_pt_to_env(action, env)
@@ -70,7 +70,8 @@ def record_episode(
         step_count = 0
 
         while step_count < max_steps:
-            obs_tensor = torch.as_tensor(obs, dtype=torch.float32).unsqueeze(0)
+            # obs_tensor = torch.as_tensor(obs, dtype=torch.float32).unsqueeze(0)
+            obs_tensor = torch.as_tensor(obs)
             action, _ = policy(obs_tensor)
 
             obs, reward, done, truncated, _ = eval_env.step(
