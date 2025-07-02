@@ -43,6 +43,8 @@ def rollout_episode(
         states[:, t] = obs
         actions[:, t] = action
         log_probs[:, t] = log_prob
+
+        # print("action: ", action_pt_to_env(action, env))
         obs, reward, terminated, truncated, _ = env.step(action_pt_to_env(action, env))
 
         rewards[:, t] = torch.as_tensor(reward)

@@ -64,13 +64,13 @@ def train_ppo(
         os.path.join(save_dir, "config.json"),
     )
 
-    # record_episode(
-    #     env_id=env.spec.id,
-    #     env_kwargs=env_kwargs,
-    #     policy=actor,
-    #     save_dir=os.path.join(save_dir, "videos"),
-    #     prefix="no_train",
-    # )
+    record_episode(
+        env_id=env_id,
+        env_kwargs=env_kwargs,
+        policy=actor,
+        save_dir=os.path.join(save_dir, "videos"),
+        prefix="no_train",
+    )
 
     actor_optimizer = torch.optim.Adam(actor.parameters(), lr=actor_lr)
     critic_optimizer = torch.optim.Adam(critic.parameters(), lr=critic_lr)
@@ -84,6 +84,8 @@ def train_ppo(
             policy=actor,
             timesteps=timesteps,
         )
+
+        # print("episode: ", episode)
 
         advantages, values = get_gae_advantages(
             episode, critic=critic, gamma=gamma, lmbda=lmbda

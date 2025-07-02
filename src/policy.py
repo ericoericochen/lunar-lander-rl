@@ -18,6 +18,10 @@ def action_pt_to_env(
     action: torch.Tensor,
     env: gym.vector.AsyncVectorEnv,
 ):
+    # print("action_pt_to_env")
+    # print(env)
+    # print(action.shape)
+
     # assert action.shape[0] == env.num_envs
     # print("action_pt_to_env")
     # print("action: ", action.shape)
@@ -30,7 +34,7 @@ def action_pt_to_env(
     elif isinstance(env.action_space, MultiDiscrete):
         return action.detach().numpy()
     elif isinstance(env.action_space, Box):
-        return action[0].detach().numpy()
+        return action.detach().numpy()
 
 
 class DiscretePolicy(nn.Module):
@@ -97,11 +101,20 @@ class ContinuousPolicy(nn.Module):
             },
         }
 
+    def get_log_probs(self, obs: torch.Tensor, actions: torch.Tensor):
+        mean, log_std = self.mlp(obs).split(self.n_acts, dim=-1)
+        log_std = torch.clamp(log_std, min=-20, max=2)
+        std = log_std.exp()
+        cov = torch.diag_embed(std**2)
+        dist = torch.distributions.MultivariateNormal(loc=mean, covariance_matrix=cov)
+        log_prob = dist.log_prob(actions)
+
+        return log_prob
+
     def forward(self, obs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        params = self.mlp(obs).view(-1, 2, self.n_acts)
-        mean, log_std = torch.unbind(params, dim=1)
-        # log_std = torch.clamp(log_std, min=-20, max=2)
-        log_std = torch.clamp(log_std, min=-2, max=2)
+        # params = self.mlp(obs).view(-1, 2, self.n_acts)
+        mean, log_std = self.mlp(obs).split(self.n_acts, dim=-1)
+        log_std = torch.clamp(log_std, min=-20, max=2)
         std = log_std.exp()
         cov = torch.diag_embed(std**2)
         dist = torch.distributions.MultivariateNormal(loc=mean, covariance_matrix=cov)
