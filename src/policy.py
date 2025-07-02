@@ -43,6 +43,8 @@ class DiscretePolicy(nn.Module):
         self.mlp = nn.Sequential(
             nn.Linear(obs_dim, n_hidden),
             nn.ReLU(),
+            nn.Linear(n_hidden, n_hidden),
+            nn.ReLU(),
             nn.Linear(n_hidden, n_acts),
         )
 

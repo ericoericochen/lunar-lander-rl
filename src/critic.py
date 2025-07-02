@@ -20,4 +20,4 @@ class Critic(nn.Module):
         )
 
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
-        return self.mlp(obs).view(-1)
+        return self.mlp(obs).view(*obs.shape[:-1])

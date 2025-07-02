@@ -13,6 +13,13 @@ def save_json(data: dict, path: str):
         json.dump(data, f, indent=4)
 
 
+def create_n_envs(env_id: str, env_kwargs: dict, n_envs: int):
+    def make_env():
+        return gym.make(env_id, **env_kwargs)
+
+    return gym.vector.AsyncVectorEnv([make_env for _ in range(n_envs)])
+
+
 def evaluate_policy(env: gym.Env, policy: Policy, batch_size: int = 3):
     total_reward = 0
     for _ in range(batch_size):
@@ -39,6 +46,7 @@ def record_episode(
     env_id: str,
     policy: torch.nn.Module,
     save_dir: str,
+    env_kwargs: dict = {},
     prefix: str = "episode",
     seed: int = None,
     max_steps: int = 1000,
@@ -55,7 +63,7 @@ def record_episode(
         greedy_sampling: Whether to use greedy action selection
         max_steps: Maximum number of steps per episode
     """
-    eval_env = gym.make(env_id, render_mode="rgb_array")
+    eval_env = gym.make(env_id, render_mode="rgb_array", **env_kwargs)
     eval_env = RecordVideo(
         eval_env,
         save_dir,

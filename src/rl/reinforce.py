@@ -1,90 +1,63 @@
 import os
-import json
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 import gymnasium as gym
-from gymnasium.wrappers import RecordVideo
-import matplotlib.pyplot as plt
 from tqdm import tqdm
-from typing import Callable
 
-from ..utils import save_json, record_episode, evaluate_policy, plot_training_rewards
-from ..policy import Policy, action_pt_to_env
-
-
-def get_episode_batch(env: gym.Env, policy: Policy, batch_size: int, gamma: float):
-    states = []
-    next_states = []
-    actions, rewards, log_probs, dones, returns = [], [], [], [], []
-
-    obs, _ = env.reset()
-    for i in range(batch_size):
-        obs = torch.as_tensor(obs, dtype=torch.float32).unsqueeze(0)
-        states.append(obs)
-        action, log_prob = policy(obs)
-        obs, reward, done, _, __ = env.step(action_pt_to_env(action, env))
-
-        next_states.append(torch.as_tensor(obs, dtype=torch.float32).unsqueeze(0))
-        actions.append(action)
-        log_probs.append(log_prob)
-        rewards.append(float(reward))
-        dones.append(int(done))
-
-        if done:
-            # break
-            obs, _ = env.reset()
-
-    # calculate g_t = r_t + 1 + gamma * r_t+1 for each timestep
-    R = 0
-    for reward, done in zip(rewards[::-1], dones[::-1]):
-        R = reward + gamma * R * (1 - done)
-        returns.insert(0, R)
-
-    return {
-        "states": torch.cat(states, dim=0),
-        "next_states": torch.cat(next_states, dim=0),
-        "actions": torch.stack(actions),
-        "rewards": torch.tensor(rewards),
-        "dones": torch.tensor(dones, dtype=torch.bool),
-        "log_probs": torch.stack(log_probs),
-        "returns": torch.tensor(returns),
-    }
+from ..utils import (
+    save_json,
+    record_episode,
+    evaluate_policy,
+    plot_training_rewards,
+    create_n_envs,
+)
+from ..policy import (
+    Policy,
+)
+from ..rollout import rollout_episode, get_returns
 
 
 def train_reinforce(
-    env: gym.Env,
+    env_id: str,
+    env_kwargs: dict,
     policy: Policy,
-    gamma: float,
-    lr: float,
-    batch_size: int,
-    n_epochs: int,
     save_dir: str,
+    gamma: float = 0.99,
+    lr: float = 3e-4,
+    timesteps: int = 256,
+    n_epochs: int = 1000,
     eval_every: int = 100,
     log_every: int = 50,
-    seed: int = None,
+    seed: int = 42,
+    n_envs: int = 1,
 ):
-    torch.manual_seed(seed)
+    env = create_n_envs(env_id, env_kwargs, n_envs)
+    obs, _ = env.reset(seed=seed)
+    eval_env = gym.make(env_id, **env_kwargs)
+
     os.makedirs(save_dir, exist_ok=True)
-    print(f"[INFO] REINFORCE: env={env.spec.id} policy={policy.config}")
+
+    print(f"[INFO] REINFORCE: env={env_id} policy={policy.config}")
     print(f"[INFO] Saving to {save_dir}")
     print(
-        f"[INFO] Training with gamma={gamma}, lr={lr}, batch_size={batch_size}, n_epochs={n_epochs}"
+        f"[INFO] Training with gamma={gamma}, lr={lr}, timesteps={timesteps}, n_epochs={n_epochs}"
     )
     save_json(
         {
+            "type": "reinforce",
             "gamma": gamma,
             "lr": lr,
-            "batch_size": batch_size,
+            "timesteps": timesteps,
             "n_epochs": n_epochs,
-            "env_id": env.spec.id,
+            "env_id": env_id,
+            "n_envs": n_envs,
             "policy": policy.config,
         },
         os.path.join(save_dir, "config.json"),
     )
 
     record_episode(
-        env_id=env.spec.id,
+        env_id=env_id,
+        env_kwargs=env_kwargs,
         policy=policy,
         save_dir=os.path.join(save_dir, "videos"),
         prefix="no_train",
@@ -92,47 +65,51 @@ def train_reinforce(
 
     optimizer = torch.optim.Adam(policy.parameters(), lr=lr)
     train_rewards = []
+    pbar = tqdm(range(n_epochs))
 
-    for i in tqdm(range(n_epochs)):
-        episode_batch = get_episode_batch(
-            env=env, policy=policy, gamma=gamma, batch_size=batch_size
+    for i in pbar:
+        episode, obs = rollout_episode(
+            env,
+            obs=obs,
+            policy=policy,
+            timesteps=timesteps,
         )
+        returns = get_returns(episode, gamma)
+        log_probs = policy.get_log_probs(episode.states, episode.actions)
 
-        returns, log_probs = episode_batch["returns"], episode_batch["log_probs"]
-        # _, log_probs = policy(episode_batch["states"])
+        pbar.set_postfix(returns=returns.mean().item())
+
+        # normalize returns
+        returns = (returns - returns.mean()) / (returns.std() + 1e-8)
 
         # policy gradient with baseline = (Q(s, a) - b(s)) * ∇log π(a | s)
         # we calculate -(Q(s, a) - b(s)) * log π(a | s), then do gradient descent which moves policy parameters
         # in direction increase expected returns. θ = θ + α * (Q(s, a) - b(s)) * ∇log π(a | s)
+        policy_loss = -(returns * log_probs).view(-1).mean()
 
-        returns = (returns - returns.mean()) / (
-            returns.std() + 1e-8
-        )  # this is equivalent to multiplying by a scalar - doesn't change direction of gradient and also reduces varaiance
-
-        policy_loss = -(returns * log_probs).mean()
-        # print("policy_loss: ", policy_loss)
-        # raise RuntimeError
         optimizer.zero_grad()
         policy_loss.backward()
         optimizer.step()
 
         if ((i + 1) % log_every) == 0:
-            avg_reward = evaluate_policy(env, policy, batch_size=4)
+            avg_reward = evaluate_policy(eval_env, policy, batch_size=4)
             train_rewards.append(avg_reward)
             print(f"[Epoch {i + 1}] Reward={avg_reward:.2f}")
 
         if ((i + 1) % eval_every) == 0:
             record_episode(
-                env_id=env.spec.id,
+                env_id=env_id,
+                env_kwargs=env_kwargs,
                 policy=policy,
                 save_dir=os.path.join(save_dir, "videos"),
                 prefix=f"eval-{i}",
             )
 
-    plot_training_rewards(train_rewards, log_every, n_epochs, save_dir, env)
+    plot_training_rewards(train_rewards, log_every, n_epochs, save_dir, eval_env)
     for i in range(4):
         record_episode(
-            env_id=env.spec.id,
+            env_id=env_id,
+            env_kwargs=env_kwargs,
             policy=policy,
             save_dir=os.path.join(save_dir, "videos"),
             prefix=f"final-{i}",
