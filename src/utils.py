@@ -55,6 +55,7 @@ def record_episode(
         greedy_sampling: Whether to use greedy action selection
         max_steps: Maximum number of steps per episode
     """
+    # eval_env = gym.make(env_id, render_mode="rgb_array", continuous=True)
     eval_env = gym.make(env_id, render_mode="rgb_array")
     eval_env = RecordVideo(
         eval_env,

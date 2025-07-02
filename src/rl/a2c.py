@@ -55,6 +55,30 @@ def get_episode_batch(env: gym.Env, actor: Policy, batch_size: int, gamma: float
     }
 
 
+def calculate_advantages(
+    critic: Critic,
+    states: torch.Tensor,
+    next_states: torch.Tensor,
+    rewards: torch.Tensor,
+    dones: torch.Tensor,
+    lmbda: float,
+    gamma: float,
+):
+    v_next, v_curr = critic(next_states), critic(states)
+    deltas = rewards + gamma * v_next * (1 - dones.float()) - v_curr  # TD error
+
+    A = torch.tensor(0.0)
+    T = deltas.shape[0]
+    advantages = torch.zeros_like(deltas)
+
+    # calculate GAE for each timestep: A_t = delta_t + gamma * lmbda * A_t+1
+    for t in range(T - 1, -1, -1):
+        A = deltas[t] + gamma * lmbda * A * (1 - dones[t].float())
+        advantages[t] = A
+
+    return advantages
+
+
 def train_a2c(
     env: gym.Env,
     actor: Policy,
@@ -68,6 +92,7 @@ def train_a2c(
     batch_size: int = 512,
     gamma: float = 0.99,
     seed: int = None,
+    lmbda: float = 0.95,
 ):
     if seed:
         torch.manual_seed(seed)
@@ -106,11 +131,12 @@ def train_a2c(
             env=env, actor=actor, batch_size=batch_size, gamma=gamma
         )
 
-        states, next_states, returns, rewards, log_probs = (
+        states, next_states, returns, rewards, dones, log_probs = (
             episode_batch["states"],
             episode_batch["next_states"],
             episode_batch["returns"],
             episode_batch["rewards"],
+            episode_batch["dones"],
             episode_batch["log_probs"],
         )
 
@@ -124,9 +150,16 @@ def train_a2c(
 
         # calculate advantage
         with torch.no_grad():
-            advantages = returns - critic(states)
+            advantages = calculate_advantages(
+                critic=critic,
+                states=states,
+                next_states=next_states,
+                rewards=rewards,
+                dones=dones,
+                lmbda=lmbda,
+                gamma=gamma,
+            )
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
-            # advantages = returns - v_states
 
         # update actor
         actor_loss = -(advantages * log_probs).mean()

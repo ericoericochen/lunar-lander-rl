@@ -67,6 +67,8 @@ class ContinuousPolicy(nn.Module):
         self.mlp = nn.Sequential(
             nn.Linear(obs_dim, n_hidden),
             nn.ReLU(),
+            nn.Linear(n_hidden, n_hidden),
+            nn.ReLU(),
             nn.Linear(n_hidden, n_acts * 2),
         )
 
@@ -82,10 +84,8 @@ class ContinuousPolicy(nn.Module):
         }
 
     def forward(self, obs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        params = self.mlp(obs).view(-1, 2, self.n_acts)
-        mean, log_std = torch.unbind(params, dim=1)
-        # log_std = torch.clamp(log_std, min=-20, max=2)
-        log_std = torch.clamp(log_std, min=-2, max=2)
+        mean, log_std = self.mlp(obs).split(self.n_acts, dim=1)
+        log_std = torch.clamp(log_std, min=-20, max=2)
         std = log_std.exp()
         cov = torch.diag_embed(std**2)
         dist = torch.distributions.MultivariateNormal(loc=mean, covariance_matrix=cov)

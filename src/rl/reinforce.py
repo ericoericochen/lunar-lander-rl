@@ -54,7 +54,6 @@ def train_reinforce(
     batch_size: int,
     n_epochs: int,
     save_dir: str,
-    with_baseline: bool = False,
     eval_every: int = 100,
     log_every: int = 50,
     seed: int = None,
@@ -64,7 +63,7 @@ def train_reinforce(
     print(f"[INFO] REINFORCE: env={env.spec.id} policy={policy.config}")
     print(f"[INFO] Saving to {save_dir}")
     print(
-        f"[INFO] Training with gamma={gamma}, lr={lr}, batch_size={batch_size}, n_epochs={n_epochs}, with_baseline={with_baseline}"
+        f"[INFO] Training with gamma={gamma}, lr={lr}, batch_size={batch_size}, n_epochs={n_epochs}"
     )
     save_json(
         {
@@ -72,7 +71,6 @@ def train_reinforce(
             "lr": lr,
             "batch_size": batch_size,
             "n_epochs": n_epochs,
-            "with_baseline": with_baseline,
             "env_id": env.spec.id,
             "policy": policy.config,
         },
@@ -99,10 +97,9 @@ def train_reinforce(
         # policy gradient with baseline = (Q(s, a) - b(s)) * ∇log π(a | s)
         # we calculate -(Q(s, a) - b(s)) * log π(a | s), then do gradient descent which moves policy parameters
         # in direction increase expected returns. θ = θ + α * (Q(s, a) - b(s)) * ∇log π(a | s)
-        if with_baseline:
-            returns = (returns - returns.mean()) / (
-                returns.std() + 1e-8
-            )  # this is equivalent to multiplying by a scalar - doesn't change direction of gradient and also reduces varaiance
+        returns = (returns - returns.mean()) / (
+            returns.std() + 1e-8
+        )  # this is equivalent to multiplying by a scalar - doesn't change direction of gradient and also reduces varaiance
 
         policy_loss = -(returns * log_probs).mean()
         optimizer.zero_grad()
