@@ -3,6 +3,7 @@ import torch.nn as nn
 import gymnasium as gym
 from typing import Union
 from gymnasium.spaces import Discrete, Box, MultiDiscrete
+import numpy as np
 
 
 def get_obs_and_act_dims(env: gym.Env):
@@ -34,7 +35,9 @@ def action_pt_to_env(
     elif isinstance(env.action_space, MultiDiscrete):
         return action.detach().numpy()
     elif isinstance(env.action_space, Box):
-        return action.detach().numpy()
+        # Clip continuous actions to environment's bounds
+        action_np = action.detach().numpy()
+        return np.clip(action_np, env.action_space.low, env.action_space.high)
 
 
 class DiscretePolicy(nn.Module):
@@ -87,6 +90,8 @@ class ContinuousPolicy(nn.Module):
         self.mlp = nn.Sequential(
             nn.Linear(obs_dim, n_hidden),
             nn.ReLU(),
+            nn.Linear(n_hidden, n_hidden),
+            nn.ReLU(),
             nn.Linear(n_hidden, n_acts * 2),
         )
 
@@ -109,7 +114,7 @@ class ContinuousPolicy(nn.Module):
         dist = torch.distributions.MultivariateNormal(loc=mean, covariance_matrix=cov)
         log_prob = dist.log_prob(actions)
 
-        return log_prob
+        return log_prob, dist
 
     def forward(self, obs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         # params = self.mlp(obs).view(-1, 2, self.n_acts)
