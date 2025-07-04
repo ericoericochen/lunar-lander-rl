@@ -15,6 +15,7 @@ from src.critic import Critic
 @dataclass
 class Episode:
     states: torch.Tensor
+    all_states: torch.Tensor
     actions: torch.Tensor
     rewards: torch.Tensor
     dones: torch.Tensor
@@ -28,7 +29,7 @@ def rollout_episode(
     env: gym.vector.AsyncVectorEnv, obs: np.ndarray, policy: Policy, timesteps: int
 ) -> tuple[Episode, np.ndarray]:
 
-    states = torch.zeros(env.num_envs, timesteps, obs.shape[-1])
+    states = torch.zeros(env.num_envs, timesteps + 1, obs.shape[-1])
     if isinstance(policy, DiscretePolicy):
         actions = torch.zeros(env.num_envs, timesteps, dtype=torch.int32)
     elif isinstance(policy, ContinuousPolicy):
@@ -44,15 +45,18 @@ def rollout_episode(
         actions[:, t] = action
         log_probs[:, t] = log_prob
 
-        # print("action: ", action_pt_to_env(action, env))
         obs, reward, terminated, truncated, _ = env.step(action_pt_to_env(action, env))
 
         rewards[:, t] = torch.as_tensor(reward)
-        dones[:, t] = torch.as_tensor(terminated | truncated)
+        dones[:, t] = torch.as_tensor(terminated)
+        # dones[:, t] = torch.as_tensor(terminated | truncated)
+
+    states[:, -1] = torch.as_tensor(obs)
 
     return (
         Episode(
-            states=states,
+            states=states[:, :-1],
+            all_states=states,
             actions=actions,
             rewards=rewards,
             dones=dones,
@@ -77,18 +81,24 @@ def get_returns(episode: Episode, gamma: float):
 @torch.no_grad()
 def get_gae_advantages(episode: Episode, critic: Critic, gamma: float, lmbda: float):
     advantages = torch.zeros_like(episode.rewards)
-    values = critic(episode.states)
+    values = critic(episode.all_states)
+    deltas = (
+        episode.rewards
+        + gamma * values[:, 1:] * (1 - episode.dones.float())
+        - values[:, :-1]
+    )
+    # values = critic(episode.states)
 
-    V = torch.zeros(episode.n_envs)
+    # V = torch.zeros(episode.n_envs)
     A = torch.zeros(episode.n_envs)
     for t in range(episode.timesteps - 1, -1, -1):
-        delta = (
-            episode.rewards[:, t]
-            + gamma * V * (1 - episode.dones[:, t].float())
-            - values[:, t]
-        )
-        A = delta + gamma * lmbda * A * (1 - episode.dones[:, t].float())
-        V = values[:, t]
+        # delta = (
+        #     episode.rewards[:, t]
+        #     + gamma * V * (1 - episode.dones[:, t].float())
+        #     - values[:, t]
+        # )
+        A = deltas[:, t] + gamma * lmbda * A * (1 - episode.dones[:, t].float())
+        # V = values[:, t]
         advantages[:, t] = A
 
-    return advantages, values
+    return advantages, values[:, :-1]

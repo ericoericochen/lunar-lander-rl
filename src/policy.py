@@ -19,17 +19,7 @@ def action_pt_to_env(
     action: torch.Tensor,
     env: gym.vector.AsyncVectorEnv,
 ):
-    # print("action_pt_to_env")
-    # print(env)
-    # print(action.shape)
 
-    # assert action.shape[0] == env.num_envs
-    # print("action_pt_to_env")
-    # print("action: ", action.shape)
-    # print(len(action.shape))
-    # assert action.shape[0] == 1, "Action passed into env must be a single action"
-    # if isinstance(env.action_space, Discrete):
-    # print(env.action_space)
     if isinstance(env.action_space, Discrete):
         return action.detach().numpy()
     elif isinstance(env.action_space, MultiDiscrete):
@@ -93,7 +83,18 @@ class ContinuousPolicy(nn.Module):
             nn.Linear(n_hidden, n_hidden),
             nn.ReLU(),
             nn.Linear(n_hidden, n_acts * 2),
+            nn.Tanh(),
         )
+
+        def orthogonal_init(module, gain):
+            if isinstance(module, nn.Linear):
+                nn.init.orthogonal_(module.weight, gain)
+                nn.init.constant_(module.bias, 0)
+
+        # Apply orthogonal initialization to each layer
+        self.mlp[0].apply(lambda m: orthogonal_init(m, np.sqrt(2)))  # first hidden
+        self.mlp[2].apply(lambda m: orthogonal_init(m, np.sqrt(2)))  # second hidden
+        self.mlp[4].apply(lambda m: orthogonal_init(m, 1.0))  # output
 
     @property
     def config(self):
@@ -108,7 +109,6 @@ class ContinuousPolicy(nn.Module):
 
     def get_log_probs(self, obs: torch.Tensor, actions: torch.Tensor):
         mean, log_std = self.mlp(obs).split(self.n_acts, dim=-1)
-        log_std = torch.clamp(log_std, min=-20, max=2)
         std = log_std.exp()
         cov = torch.diag_embed(std**2)
         dist = torch.distributions.MultivariateNormal(loc=mean, covariance_matrix=cov)
@@ -117,7 +117,6 @@ class ContinuousPolicy(nn.Module):
         return log_prob, dist
 
     def forward(self, obs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        # params = self.mlp(obs).view(-1, 2, self.n_acts)
         mean, log_std = self.mlp(obs).split(self.n_acts, dim=-1)
         log_std = torch.clamp(log_std, min=-20, max=2)
         std = log_std.exp()

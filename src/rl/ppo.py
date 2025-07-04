@@ -31,6 +31,7 @@ def train_ppo(
     eval_every: int,
     batch_size: int,
     n_envs: int = 1,
+    n_critic_updates: int = 1,
     timesteps: int = 512,
     gamma: float = 0.99,
     lmbda: float = 0.95,
@@ -90,7 +91,6 @@ def train_ppo(
             episode, critic=critic, gamma=gamma, lmbda=lmbda
         )
         v_targets = advantages + values
-        v_preds = critic(episode.states)
 
         pbar.set_postfix(advantages=advantages.mean().item())
 
@@ -100,13 +100,12 @@ def train_ppo(
 
         # train actor
         old_log_probs = episode.log_probs.view(-1)
-        states = episode.states.view(n_envs * timesteps, -1)
-        actions = episode.actions.view(n_envs * timesteps, -1)
+        states = episode.states.reshape(n_envs * timesteps, -1)
+        actions = episode.actions.reshape(n_envs * timesteps, -1)
 
         for t in range(0, n_envs * timesteps, batch_size):
-            A = (
-                advantages[t : t + batch_size] - advantages[t : t + batch_size].mean()
-            ) / (advantages[t : t + batch_size].std() + 1e-8)
+            A = advantages[t : t + batch_size]
+            A = (A - A.mean()) / (A.std() + 1e-8)
 
             log_probs, dist = actor.get_log_probs(
                 states[t : t + batch_size], actions[t : t + batch_size]
@@ -115,8 +114,6 @@ def train_ppo(
 
             t1 = A * ratio
             t2 = A * torch.clamp(ratio, 1 - eps, 1 + eps)
-            # t1 = advantages[t : t + batch_size] * ratio
-            # t2 = advantages[t : t + batch_size] * torch.clamp(ratio, 1 - eps, 1 + eps)
             ppo_loss = -torch.min(t1, t2).mean() - entropy_coef * dist.entropy().mean()
 
             actor_optimizer.zero_grad()
@@ -124,12 +121,14 @@ def train_ppo(
             actor_optimizer.step()
 
         # train critic
-        v_loss = F.smooth_l1_loss(v_targets, v_preds)
-        # v_loss = F.smooth_l1_loss(v_targets, v_preds)
+        for _ in range(n_critic_updates):
+            v_preds = critic(episode.states)
+            v_loss = F.mse_loss(v_targets, v_preds)
+            # v_loss = F.smooth_l1_loss(v_targets, v_preds)
 
-        critic_optimizer.zero_grad()
-        v_loss.backward()
-        critic_optimizer.step()
+            critic_optimizer.zero_grad()
+            v_loss.backward()
+            critic_optimizer.step()
 
         if ((i + 1) % log_every) == 0:
             avg_reward = evaluate_policy(eval_env, actor, batch_size=4)
