@@ -95,8 +95,8 @@ def train_ppo(
         pbar.set_postfix(advantages=advantages.mean().item())
 
         # normalize advantages
-        # advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
         advantages = advantages.view(-1)  # (N * T)
+        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
         # train actor
         old_log_probs = episode.log_probs.view(-1)
@@ -104,16 +104,18 @@ def train_ppo(
         actions = episode.actions.reshape(n_envs * timesteps, -1)
 
         for t in range(0, n_envs * timesteps, batch_size):
-            A = advantages[t : t + batch_size]
-            A = (A - A.mean()) / (A.std() + 1e-8)
+            batch_advantages = advantages[t : t + batch_size]
+            # A = (A - A.mean()) / (A.std() + 1e-8)
 
-            log_probs, dist = actor.get_log_probs(
-                states[t : t + batch_size], actions[t : t + batch_size]
-            )
-            ratio = torch.exp(log_probs - old_log_probs[t : t + batch_size])
+            batch_states = states[t : t + batch_size]
+            batch_actions = actions[t : t + batch_size]
+            batch_old_log_probs = old_log_probs[t : t + batch_size]
 
-            t1 = A * ratio
-            t2 = A * torch.clamp(ratio, 1 - eps, 1 + eps)
+            log_probs, dist = actor.get_log_probs(batch_states, batch_actions)
+            ratio = torch.exp(log_probs - batch_old_log_probs)
+
+            t1 = batch_advantages * ratio
+            t2 = batch_advantages * torch.clamp(ratio, 1 - eps, 1 + eps)
             ppo_loss = -torch.min(t1, t2).mean() - entropy_coef * dist.entropy().mean()
 
             actor_optimizer.zero_grad()
@@ -124,7 +126,6 @@ def train_ppo(
         for _ in range(n_critic_updates):
             v_preds = critic(episode.states)
             v_loss = F.mse_loss(v_targets, v_preds)
-            # v_loss = F.smooth_l1_loss(v_targets, v_preds)
 
             critic_optimizer.zero_grad()
             v_loss.backward()

@@ -5,4 +5,4 @@ from .policy import (
     create_continuous_policy,
 )
 from .critic import Critic, create_critic
-from .rl import train_reinforce, train_a2c, train_ppo
+from .rl import train_reinforce, train_a2c, train_ppo, train_grpo
