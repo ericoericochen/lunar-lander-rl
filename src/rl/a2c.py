@@ -100,7 +100,7 @@ def train_a2c(
         pbar.set_postfix(advantages=advantages.mean().item())
 
         # train actor
-        log_probs = actor.get_log_probs(episode.states, episode.actions)
+        log_probs, dist = actor.get_log_probs(episode.states, episode.actions)
 
         # normalize advantages
         advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)

@@ -48,8 +48,7 @@ def rollout_episode(
         obs, reward, terminated, truncated, _ = env.step(action_pt_to_env(action, env))
 
         rewards[:, t] = torch.as_tensor(reward)
-        dones[:, t] = torch.as_tensor(terminated)
-        # dones[:, t] = torch.as_tensor(terminated | truncated)
+        dones[:, t] = torch.as_tensor(terminated | truncated)
 
     states[:, -1] = torch.as_tensor(obs)
 

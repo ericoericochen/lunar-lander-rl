@@ -13,7 +13,7 @@ from src.utils import (
     plot_training_rewards,
     create_n_envs,
 )
-from src.policy import Policy
+from src.policy import Policy, ContinuousPolicy, DiscretePolicy
 from src.critic import Critic
 from src.rollout import rollout_episode, get_gae_advantages
 
@@ -35,7 +35,7 @@ def train_ppo(
     timesteps: int = 512,
     gamma: float = 0.99,
     lmbda: float = 0.95,
-    entropy_coef: float = 0.01,
+    entropy_coef: float = 0.0,
     seed: int = None,
     eps: float = 0.2,
 ):
@@ -101,19 +101,19 @@ def train_ppo(
         # train actor
         old_log_probs = episode.log_probs.view(-1)
         states = episode.states.reshape(n_envs * timesteps, -1)
-        actions = episode.actions.reshape(n_envs * timesteps, -1)
+        if isinstance(actor, ContinuousPolicy):
+            actions = episode.actions.reshape(n_envs * timesteps, -1)
+        elif isinstance(actor, DiscretePolicy):
+            actions = episode.actions.reshape(n_envs * timesteps)
 
         for t in range(0, n_envs * timesteps, batch_size):
             batch_advantages = advantages[t : t + batch_size]
-            # A = (A - A.mean()) / (A.std() + 1e-8)
-
             batch_states = states[t : t + batch_size]
             batch_actions = actions[t : t + batch_size]
             batch_old_log_probs = old_log_probs[t : t + batch_size]
 
             log_probs, dist = actor.get_log_probs(batch_states, batch_actions)
             ratio = torch.exp(log_probs - batch_old_log_probs)
-
             t1 = batch_advantages * ratio
             t2 = batch_advantages * torch.clamp(ratio, 1 - eps, 1 + eps)
             ppo_loss = -torch.min(t1, t2).mean() - entropy_coef * dist.entropy().mean()
@@ -125,7 +125,7 @@ def train_ppo(
         # train critic
         for _ in range(n_critic_updates):
             v_preds = critic(episode.states)
-            v_loss = F.mse_loss(v_targets, v_preds)
+            v_loss = F.mse_loss(v_targets.detach(), v_preds)
 
             critic_optimizer.zero_grad()
             v_loss.backward()

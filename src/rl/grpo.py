@@ -10,7 +10,7 @@ from src.utils import (
     plot_training_rewards,
     create_n_envs,
 )
-from src.policy import Policy
+from src.policy import Policy, ContinuousPolicy, DiscretePolicy
 from src.rollout import rollout_episode, get_returns
 
 
@@ -86,7 +86,11 @@ def train_grpo(
         returns = (returns - returns.mean()) / (returns.std() + 1e-8)
         old_log_probs = episode.log_probs.view(-1)
         states = episode.states.reshape(n_envs * timesteps, -1)
-        actions = episode.actions.reshape(n_envs * timesteps, -1)
+        # actions = episode.actions.reshape(n_envs * timesteps, -1)
+        if isinstance(policy, ContinuousPolicy):
+            actions = episode.actions.reshape(n_envs * timesteps, -1)
+        elif isinstance(policy, DiscretePolicy):
+            actions = episode.actions.reshape(n_envs * timesteps)
 
         for t in range(0, n_envs * timesteps, batch_size):
             batch_returns = returns[t : t + batch_size]

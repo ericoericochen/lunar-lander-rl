@@ -75,7 +75,7 @@ def train_reinforce(
             timesteps=timesteps,
         )
         returns = get_returns(episode, gamma)
-        log_probs = policy.get_log_probs(episode.states, episode.actions)
+        log_probs, dist = policy.get_log_probs(episode.states, episode.actions)
 
         pbar.set_postfix(returns=returns.mean().item())
 

@@ -57,10 +57,14 @@ class DiscretePolicy(nn.Module):
         }
 
     def get_log_probs(self, obs: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
+        # print("get log probs")
         logits = self.mlp(obs)
+        # print("logits: ", logits.shape)
         dist = torch.distributions.Categorical(logits=logits)
         log_prob = dist.log_prob(actions)
-        return log_prob
+        # log_prob = dist.log_prob(actions.view(-1))
+        # print("log_prob: ", log_prob.shape)
+        return log_prob, dist
 
     def forward(self, obs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         logits = self.mlp(obs)
